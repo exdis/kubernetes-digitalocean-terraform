@@ -65,7 +65,7 @@ Optionally, you can customize the datacenter *region* via:
 ```bash
 export TF_VAR_do_region=fra1
 ```
-The default region is `nyc3`. You can find a list of available regions from [Digitialocean](https://developers.digitalocean.com/documentation/v2/#list-all-regions).
+The default region is `sgp1`. You can find a list of available regions from [Digitialocean](https://developers.digitalocean.com/documentation/v2/#list-all-regions).
 
 After setup, call `terraform apply`
 
