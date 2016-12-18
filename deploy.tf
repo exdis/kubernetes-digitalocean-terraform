@@ -21,6 +21,8 @@ variable "number_of_workers" {}
 variable "hypercube_version" {
     default = "v1.3.6_coreos.0"
 }
+
+
 ###############################################################################
 #
 # Specify provider
@@ -35,85 +37,6 @@ provider "digitalocean" {
 
 ###############################################################################
 #
-# Etcd host
-#
-###############################################################################
-
-
-resource "digitalocean_droplet" "k8s_etcd" {
-    image = "coreos-stable"
-    name = "k8s-etcd"
-    region = "${var.do_region}"
-    private_networking = true
-    size = "512mb"
-    user_data = "${file("00-etcd.yaml")}"
-    ssh_keys = [
-        "${var.ssh_fingerprint}"
-    ]
-
-    # Generate the Certificate Authority
-    provisioner "local-exec" {
-        command = <<EOF
-            $PWD/cfssl/generate_ca.sh
-EOF
-    }
-
-    # Generate k8s-etcd server certificate
-    provisioner "local-exec" {
-        command = <<EOF
-            $PWD/cfssl/generate_server.sh k8s_etcd ${digitalocean_droplet.k8s_etcd.ipv4_address_private}
-EOF
-    }
-
-    # Provision k8s_etcd server certificate
-    provisioner "file" {
-        source = "./secrets/ca.pem"
-        destination = "/home/core/ca.pem"
-        connection {
-            user = "core"
-        }
-    }
-    provisioner "file" {
-        source = "./secrets/k8s_etcd.pem"
-        destination = "/home/core/etcd.pem"
-        connection {
-            user = "core"
-        }
-    }
-    provisioner "file" {
-        source = "./secrets/k8s_etcd-key.pem"
-        destination = "/home/core/etcd-key.pem"
-        connection {
-            user = "core"
-        }
-    }
-
-    # TODO: figure out etcd2 user and chown, chmod key.pem files
-    provisioner "remote-exec" {
-        inline = [
-            "sudo mkdir -p /etc/kubernetes/ssl",
-            "sudo mv /home/core/{ca,etcd,etcd-key}.pem /etc/kubernetes/ssl/."
-        ]
-        connection {
-            user = "core"
-        }
-    }
-
-    # Start etcd2
-    provisioner "remote-exec" {
-        inline = [
-            "sudo systemctl start etcd2",
-            "sudo systemctl enable etcd2",
-        ]
-        connection {
-            user = "core"
-        }
-    }
-}
-
-
-###############################################################################
-#
 # Master host's user data template
 #
 ###############################################################################
@@ -123,7 +46,6 @@ data "template_file" "master_yaml" {
     template = "${file("01-master.yaml")}"
     vars {
         DNS_SERVICE_IP = "10.3.0.10"
-        ETCD_IP = "${digitalocean_droplet.k8s_etcd.ipv4_address_private}"
         POD_NETWORK = "10.2.0.0/16"
         SERVICE_IP_RANGE = "10.3.0.0/24"
         HYPERCUBE_VERSION = "${var.hypercube_version}"
@@ -149,6 +71,13 @@ resource "digitalocean_droplet" "k8s_master" {
         "${var.ssh_fingerprint}"
     ]
 
+    # Generate the Certificate Authority
+    provisioner "local-exec" {
+        command = <<EOF
+            $PWD/cfssl/generate_ca.sh
+EOF
+    }
+
     # Generate k8s_master server certificate
     provisioner "local-exec" {
         command = <<EOF
@@ -156,7 +85,7 @@ resource "digitalocean_droplet" "k8s_master" {
 EOF
     }
 
-    # Provision k8s_etcd server certificate
+    # Provision k8s_master server certificate
     provisioner "file" {
         source = "./secrets/ca.pem"
         destination = "/home/core/ca.pem"
@@ -216,11 +145,22 @@ EOF
         }
     }
 
+    # Start etcd2 
+    provisioner "remote-exec" {
+        inline = [
+            "sudo systemctl start etcd2",
+            "sudo systemctl enable etcd2"
+        ]
+        connection {
+            user = "core"
+        }
+    }
+
     # Start kubelet and create kube-system namespace
     provisioner "remote-exec" {
         inline = [
             "sudo systemctl daemon-reload",
-            "curl --cacert /etc/kubernetes/ssl/ca.pem --cert /etc/kubernetes/ssl/client.pem --key /etc/kubernetes/ssl/client-key.pem -X PUT -d 'value={\"Network\":\"10.2.0.0/16\",\"Backend\":{\"Type\":\"vxlan\"}}' https://${digitalocean_droplet.k8s_etcd.ipv4_address_private}:2379/v2/keys/coreos.com/network/config",
+            "curl --cacert /etc/kubernetes/ssl/ca.pem --cert /etc/kubernetes/ssl/client.pem --key /etc/kubernetes/ssl/client-key.pem -X PUT -d 'value={\"Network\":\"10.2.0.0/16\",\"Backend\":{\"Type\":\"vxlan\"}}' https://${digitalocean_droplet.k8s_master.ipv4_address_private}:2379/v2/keys/coreos.com/network/config",
             "sudo systemctl start flanneld",
             "sudo systemctl enable flanneld",
             "sudo systemctl start kubelet",
@@ -246,7 +186,7 @@ data "template_file" "worker_yaml" {
     template = "${file("02-worker.yaml")}"
     vars {
         DNS_SERVICE_IP = "10.3.0.10"
-        ETCD_IP = "${digitalocean_droplet.k8s_etcd.ipv4_address_private}"
+        ETCD_IP = "${digitalocean_droplet.k8s_master.ipv4_address_private}"
         MASTER_HOST = "${digitalocean_droplet.k8s_master.ipv4_address_private}"
         HYPERCUBE_VERSION = "${var.hypercube_version}"
     }
@@ -271,8 +211,6 @@ resource "digitalocean_droplet" "k8s_worker" {
     ssh_keys = [
         "${var.ssh_fingerprint}"
     ]
-
-
 
     # Generate k8s_worker client certificate
     provisioner "local-exec" {
