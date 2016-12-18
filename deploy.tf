@@ -14,7 +14,7 @@
 
 variable "do_token" {}
 variable "do_region" {
-    default = "nyc3"
+    default = "sgp1"
 }
 variable "ssh_fingerprint" {}
 variable "number_of_workers" {}
