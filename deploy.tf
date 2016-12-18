@@ -315,6 +315,16 @@ EOF
     }
 }
 
+resource "null_resource" "deploy_dashboard_addon" {
+    depends_on = ["null_resource.setup_kubectl"]
+    provisioner "local-exec" {
+        command = <<EOF
+            until kubectl get pods 2>/dev/null; do printf '.'; sleep 5; done
+            kubectl create -f https://rawgit.com/kubernetes/dashboard/master/src/deploy/kubernetes-dashboard.yaml
+EOF
+    }
+}
+
 resource "null_resource" "deploy_microbot" {
     depends_on = ["null_resource.setup_kubectl"]
     provisioner "local-exec" {
