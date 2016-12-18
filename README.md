@@ -1,178 +1,89 @@
-# Kubernetes - Digital Ocean - Terraform
+# Kubernetes on DigitalOcean via Terraform
+Forked from [hermanjunge/kubernetes-digitalocean-terraform](https://github.com/hermanjunge/kubernetes-digitalocean-terraform) 
+for improving some features/addons are missing from the original.
 
-Deploy your Kubernetes cluster in Digital Ocean using Terraform.
+## Overview
+This project using [Terraform](https://www.terraform.io) for doing on deployment and provisioning Kubernetes with DigitalOcean.
+My purpose is building a Kubernetes cluster which run on top of the smallest plan of DigitalOcean ($5/month).
 
-## Requirements
+*The following instructions are tested only on macOS*
 
-* [Digital Ocean](https://www.digitalocean.com/) account
-* Digital Ocean Token [In DO's settings/tokens/new](https://cloud.digitalocean.com/settings/tokens/new)
-* [Terraform](https://www.terraform.io/)
-* CloudFlare's PKI/TLS toolkit [cfssl](https://github.com/cloudflare/cfssl)
+## Prerequisite
+- Terraform CLI
+- CloudFlare SSL CLI
+- Kubernetes CLI (kubectl)
+- DigitalOcean API key
 
-#### On Mac
-
-With brew installed, all tools can be installed with
-
-```bash
-brew install terraform cfssl kubectl 
-```
-
-Do all the following steps from a development machine. It does not matter _where_ is it, as long as it is connected to the internet. This one will be subsequently used to access the cluster via `kubectl`.
-
-## Generate private / public keys
+### Terraform CLI & CloudFlare SSL CLI & Kubernetes CLI (kubectl)
+Both of these can be install via `brew` with this command.
 
 ```
-ssh-keygen -t rsa -b 4096
+$ brew install terraform cfssl kubectl
 ```
 
-System will prompt you for a filepath to save the key, we will go by `~/.ssh/id_rsa` in this tutorial.
+To verify the installation of Terraform CLI and CloudFlare SSL CLI by using these commands.
 
-## Add your public key in Digital Ocean control panel
+```
+$ terraform -v
+Terraform v0.8.1
 
-[Do it here](https://cloud.digitalocean.com/settings/security). Name it and paste the public key just below `Add SSH Key`.
-
-## Add this key to your ssh agent
-
-```bash
-eval `ssh-agent -s`
-ssh-add ~/.ssh/id_rsa
+$ cfssl version
+Version: 1.2.0
+Revision: dev
+Runtime: go1.7.1
 ```
 
-## Invoke terraform
+### DigitalOcean API key
+To grab your DigitalOcean API key, it would be easy by going to the [Application & API](https://cloud.digitalocean.com/settings/api/tokens) page,
+then click on "Generate New Token" button and naming your new token and copy it.
+For using it with Terraform you need to set it via env with this command.
 
-We put our Digitalocean token in the file `./secrets/DO_TOKEN` (that directory is mentioned in `.gitignore`, of course, so we don't leak it)
-
-Then we setup the environment variables (step into `this repository` root). Note that the first variable sets up the *number of workers*
-
-```bash
-export TF_VAR_number_of_workers=3
-export TF_VAR_do_token=$(cat ./secrets/DO_TOKEN)
-export TF_VAR_ssh_fingerprint=$(ssh-keygen -E MD5 -lf ~/.ssh/id_rsa.pub | awk '{print $2}' | sed 's/MD5://g')
+```
+$ export TF_VAR_do_token=YOUR_DIGITALOCEAN_API_KEY
 ```
 
-If you are using an older version of OpenSSH (<6.9), replace the last line with
-```bash
-export TF_VAR_ssh_fingerprint=$(ssh-keygen -lf ~/.ssh/id_rsa.pub | awk '{print $2}')
+Assume, you already have at least one SSH key on DigitalOcean, if not, please following [this](https://www.digitalocean.com/community/tutorials/how-to-use-ssh-keys-with-digitalocean-droplets) page.
+
+## Configuration
+```
+$ export TF_VAR_do_region=sgp1 #Default is on Singapore 1
+$ export TF_VAR_number_of_workers=2 #Default is 2 worker nodes
+$ export TF_VAR_ssh_fingerprint=$(ssh-keygen -E MD5 -lf ~/.ssh/id_rsa.pub | awk '{print $2}' | sed 's/MD5://g')
 ```
 
-There is a convenience script for you in `./setup_terraform.sh`. Invoke it as
-
-```bash
-. ./setup_terraform.sh
+## Installation
+Before you begin, please review all steps by using this command.
+```
+$ terraform plan
 ```
 
-Optionally, you can customize the datacenter *region* via:
-```bash
-export TF_VAR_do_region=fra1
+Then, start deploying by using this command.
 ```
-The default region is `sgp1`. You can find a list of available regions from [Digitialocean](https://developers.digitalocean.com/documentation/v2/#list-all-regions).
-
-After setup, call `terraform apply`
-
-```bash
-terraform apply
+$ terraform apply
 ```
 
-That should do! `kubectl` is configured, so you can just check the nodes (`get no`) and the pods (`get po`).
-
-```bash
-$ kubectl get no
-NAME          LABELS                               STATUS
-X.X.X.X   kubernetes.io/hostname=X.X.X.X   Ready     2m
-Y.Y.Y.Y   kubernetes.io/hostname=Y.Y.Y.Y   Ready     2m
-
-$ kubectl --namespace=kube-system get po
-NAME                                   READY     STATUS    RESTARTS   AGE
-kube-apiserver-X.X.X.X                    1/1       Running   0          13m
-kube-controller-manager-X.X.X.X           1/1       Running   0          12m
-kube-proxy-X.X.X.X                        1/1       Running   0          12m
-kube-proxy-X.X.X.X                        1/1       Running   0          11m
-kube-proxy-X.X.X.X                        1/1       Running   0          12m
-kube-scheduler-X.X.X.X                    1/1       Running   0          13m
-```
-
-You are good to go. Now, we can keep on reading to dive into the specifics.
-
-## Deploy details
-
-These scripts are mostly taken from the [CoreOS + Kubernetes Step by Step](https://coreos.com/kubernetes/docs/latest/getting-started.html) guide, with the addition of SSL/TLS and client certificate authentication for etcd2. 
-
-Certificate generation is covered in more detail by CoreOS's [Generate self-signed certificates](https://coreos.com/os/docs/latest/generate-self-signed-certificates.html) documentation.
-
-These resources are excellent starting places for more in depth documentation. Below is an overview of the cluster.
-
-### K8s etcd
-
-A dedicated host running a tls secured + authenticated etcd2 instance for Kubernetes.
-
-#### Cloud config
-
-See the template `00-etcd.yaml`.
-
-### K8s master
-
-The cluster master, running:
-
-* flanneld
-* kubelet
-* kube-proxy
-* kube-apiserver
-* kube-controller-manager
-* kube-scheduler
-
-#### Cloud config
-
-See the template `01-master.yaml`.
-
-#### Provisions
-
-Once we create this droplet (and get its `IP`), the TLS assets will be created locally (i.e. the development machine from we run `terraform`), and put into the directory `secrets` (which, again, is mentioned in `.gitignore`). The tls assets consist of a server key and certificate for the apiserver, as well as a client key and certificate to authenticate flanneld and the apiserver to etcd2.
-
-The TLS assets are copied to appropriate directories on the K8s master using Terraform `file` and `remote-exec` provisioners.
-
-Lastly, we start and enable both `kubelet` and `flanneld`, and finally create the `kube-system` namespace.
-
-### K8s workers
-
-Cluster worker nodes, each running:
-
-* flanneld
-* kubelet
-* kube-proxy
-* docker
-
-#### Cloud config
-
-See the template `02-worker.yaml`.
-
-#### Provisions
-
-For each droplet created, a TLS client key and certificate will be created locally (i.e. on the development machine from we run `terraform`), and put into the directory `secrets` (which, again, is mentioned in `.gitignore`). 
-
-The TLS assets are then copied to appropriate directories on the worker using Terraform `file` and `remote-exec` provisioners.
-
-Finally, we start and enable `kubelet` and `flanneld`.
-
-### Setup `kubectl`
-
-After the installation is complete, `terraform` will configure `kubectl` for you. The environment variables will be stored in the file `secrets/setup_kubectl.sh`.
-
-Test your brand new cluster
-
-```bash
-kubectl get nodes
-```
-
-You should get something similar to
+Wait until it done, the `kubectl` should configured automatically to your cluster.
+To verify your installation using this command.
 
 ```
 $ kubectl get nodes
-NAME          LABELS                               STATUS
-X.X.X.X       kubernetes.io/hostname=X.X.X.X       Ready
+NAME            STATUS                     AGE
+x.x.x.x         Ready,SchedulingDisabled   1h
+x.x.x.x         Ready                      1h
+x.x.x.x         Ready                      1h
 ```
 
-### Deploy microbot with External IP
+## Kubernetes Dashboard 
+To using your Kubernetes dashboard, it just simply by running this command.
+```
+$ kubectl proxy
+Starting to serve on 127.0.0.1:8001
+```
 
-The file `04-microbot.yaml` will be rendered (i.e. replace the value `EXT_IP1`), and then `kubectl` will create the Service and Replication Controller.
+And open your web browser and go to http://localhost:8001/ui you will see the Kubernetes dashboard like this.
 
-To see the IP of the service, run `kubectl get svc` and look for the `EXTERNAL-IP` (should be the first worker's ext-ip).
+![Kubernetes Dashboard](https://raw.githubusercontent.com/nomkhonwaan/kubernetes-digitalocean-terraform/master/screenshot.png)
+
+## Features in Future
+- [ ] Add support Ingress Controller
+- [ ] Add support Persistant Volumes with GlusterFS
