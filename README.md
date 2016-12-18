@@ -1,4 +1,4 @@
-# Kubernetes on DigitalOcean via Terraform
+# Kubernetes Cluster on DigitalOcean using Terraform
 Forked from [hermanjunge/kubernetes-digitalocean-terraform](https://github.com/hermanjunge/kubernetes-digitalocean-terraform) 
 for improving some features/addons are missing from the original.
 
