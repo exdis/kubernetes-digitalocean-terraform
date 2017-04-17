@@ -1,9 +1,12 @@
+#!/bin/sh
+
 ## Setup terraform envvars
 # Usage:
 #	. ./setup_terraform.sh
 
-export TF_VAR_number_of_workers=3
+export TF_VAR_number_of_workers=1
 export TF_VAR_do_token=$(cat ./secrets/DO_TOKEN)
+export TF_VAR_do_region=ams3
 
 function get_ssh_version {
     # ssh -V prints to stderr, redirect
@@ -19,3 +22,5 @@ if ! awk -v ver="$(get_ssh_version)" 'BEGIN { if (ver < 6.9) exit 1; }'; then
 else
     export TF_VAR_ssh_fingerprint=$(ssh-keygen -E MD5 -lf ~/.ssh/id_rsa.pub | awk '{print $2}' | sed 's/MD5://g')
 fi
+
+$SHELL
